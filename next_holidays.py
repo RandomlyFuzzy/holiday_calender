@@ -202,6 +202,7 @@ def fmt_holiday(start, end, name, code, sub):
 def main():
     parser = argparse.ArgumentParser(description='Show upcoming holidays worldwide')
     parser.add_argument('-n', type=int, default=20, help='Number of upcoming holidays to show (default: 20)')
+    parser.add_argument('-T', action='store_true', help='Output as CSV')
     args = parser.parse_args()
 
     raw = gather()
@@ -218,6 +219,20 @@ def main():
     deduped.sort(key=lambda x: x[0])
 
     count = args.n
+
+    if args.T:
+        import csv
+        import sys
+        writer = csv.writer(sys.stdout)
+        writer.writerow(['holiday', 'start', 'end', 'country', 'subdivision'])
+        printed = 0
+        for s, e, n, code, sub in deduped:
+            if s >= TODAY:
+                writer.writerow([n, str(s), str(e), code, sub or ''])
+                printed += 1
+                if printed >= count:
+                    break
+        return
 
     print(f"Today: {TODAY}\n")
     print(f"Next {count} holidays:\n")
