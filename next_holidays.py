@@ -1,3 +1,4 @@
+import argparse
 from datetime import date, timedelta
 from collections import defaultdict
 import holidays as hd
@@ -199,6 +200,10 @@ def fmt_holiday(start, end, name, code, sub):
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Show upcoming holidays worldwide')
+    parser.add_argument('-n', type=int, default=20, help='Number of upcoming holidays to show (default: 20)')
+    args = parser.parse_args()
+
     raw = gather()
     grouped = group_consecutive(raw)
 
@@ -212,14 +217,16 @@ def main():
 
     deduped.sort(key=lambda x: x[0])
 
+    count = args.n
+
     print(f"Today: {TODAY}\n")
-    print("Next 20 holidays:\n")
-    count = 0
+    print(f"Next {count} holidays:\n")
+    printed = 0
     for s, e, n, code, sub in deduped:
         if s >= TODAY:
             print(fmt_holiday(s, e, n, code, sub))
-            count += 1
-            if count >= 20:
+            printed += 1
+            if printed >= count:
                 break
 
 
