@@ -128,6 +128,19 @@ SUB_COUNTRIES = list(SUB_NAMES.keys())
 
 SKIP_KEYWORDS = ['day off', 'substituted from']
 
+CAT_ORDER = [
+    'public', 'government', 'bank', 'de_facto', 'armed_forces',
+    'workday', 'school', 'half_day', 'optional', 'unofficial',
+    'catholic', 'christian', 'orthodox', 'protestant',
+    'hebrew', 'islamic', 'hindu', 'sabian', 'yazidi',
+    'albanian', 'armenian', 'bosnian', 'roma', 'serbian', 'turkish', 'vlach',
+]
+CAT_WEIGHT = {c: i for i, c in enumerate(CAT_ORDER)}
+
+
+def cat_label(cat):
+    return cat
+
 
 def region_label(code, subdiv=None):
     name = COUNTRY_NAMES.get(code, code)
@@ -150,18 +163,24 @@ def gather():
         if code in SUB_COUNTRIES and supported:
             for sub in supported:
                 try:
-                    cal = hd.country_holidays(code, subdiv=sub, years=[YEAR, YEAR + 1])
-                    for d, n in cal.items():
-                        if d >= TODAY - timedelta(days=1) and is_valid_holiday(n):
-                            raw.append((d, n, code, sub))
+                    cal = hd.country_holidays(code, subdiv=sub, years=[YEAR])
+                    cats = getattr(cal, 'supported_categories', ('public',))
+                    for cat in cats:
+                        cal = hd.country_holidays(code, subdiv=sub, years=[YEAR, YEAR + 1], categories=[cat])
+                        for d, n in cal.items():
+                            if d >= TODAY - timedelta(days=1) and is_valid_holiday(n):
+                                raw.append((d, n, code, sub, cat))
                 except Exception:
                     pass
         else:
             try:
-                cal = hd.country_holidays(code, years=[YEAR, YEAR + 1])
-                for d, n in cal.items():
-                    if d >= TODAY - timedelta(days=1) and is_valid_holiday(n):
-                        raw.append((d, n, code, None))
+                cal = hd.country_holidays(code, years=[YEAR])
+                cats = getattr(cal, 'supported_categories', ('public',))
+                for cat in cats:
+                    cal = hd.country_holidays(code, years=[YEAR, YEAR + 1], categories=[cat])
+                    for d, n in cal.items():
+                        if d >= TODAY - timedelta(days=1) and is_valid_holiday(n):
+                            raw.append((d, n, code, None, cat))
             except Exception:
                 pass
 
@@ -170,11 +189,11 @@ def gather():
 
 def group_consecutive(entries):
     by_key = defaultdict(list)
-    for d, n, code, sub in entries:
-        by_key[(n, code, sub)].append(d)
+    for d, n, code, sub, cat in entries:
+        by_key[(n, code, sub, cat)].append(d)
 
     result = []
-    for (n, code, sub), dates in by_key.items():
+    for (n, code, sub, cat), dates in by_key.items():
         dates.sort()
         ranges = []
         start = end = dates[0]
@@ -186,17 +205,18 @@ def group_consecutive(entries):
                 start = end = d
         ranges.append((start, end))
         for s, e in ranges:
-            result.append((s, e, n, code, sub))
+            result.append((s, e, n, code, sub, cat))
 
     result.sort(key=lambda x: x[0])
     return result
 
 
-def fmt_holiday(start, end, name, code, sub):
+def fmt_holiday(start, end, name, code, sub, cat):
     region = region_label(code, sub)
+    tag = f"[{cat_label(cat)}]"
     if start == end:
-        return f"{name} - {region} - {start}"
-    return f"{name} - {region} - {start}<->{end}"
+        return f"{name} {tag} - {region} - {start}"
+    return f"{name} {tag} - {region} - {start}<->{end}"
 
 
 def main():
@@ -206,15 +226,24 @@ def main():
     args = parser.parse_args()
 
     raw = gather()
+
+    # Dedup by (date, name, code, sub) keeping most significant category
+    best = {}
+    for d, n, code, sub, cat in raw:
+        key = (d, n, code, sub)
+        if key not in best or CAT_WEIGHT.get(cat, 99) < CAT_WEIGHT.get(best[key][4], 99):
+            best[key] = (d, n, code, sub, cat)
+    raw = list(best.values())
+
     grouped = group_consecutive(raw)
 
     seen = set()
     deduped = []
-    for s, e, n, code, sub in grouped:
+    for s, e, n, code, sub, cat in grouped:
         key = (s, n, code, sub)
         if key not in seen:
             seen.add(key)
-            deduped.append((s, e, n, code, sub))
+            deduped.append((s, e, n, code, sub, cat))
 
     deduped.sort(key=lambda x: x[0])
 
@@ -224,11 +253,11 @@ def main():
         import csv
         import sys
         writer = csv.writer(sys.stdout)
-        writer.writerow(['holiday', 'start', 'end', 'country', 'subdivision'])
+        writer.writerow(['holiday', 'category', 'start', 'end', 'country', 'subdivision'])
         printed = 0
-        for s, e, n, code, sub in deduped:
+        for s, e, n, code, sub, cat in deduped:
             if s >= TODAY:
-                writer.writerow([n, str(s), str(e), code, sub or ''])
+                writer.writerow([n, cat, str(s), str(e), code, sub or ''])
                 printed += 1
                 if printed >= count:
                     break
@@ -237,9 +266,9 @@ def main():
     print(f"Today: {TODAY}\n")
     print(f"Next {count} holidays:\n")
     printed = 0
-    for s, e, n, code, sub in deduped:
+    for s, e, n, code, sub, cat in deduped:
         if s >= TODAY:
-            print(fmt_holiday(s, e, n, code, sub))
+            print(fmt_holiday(s, e, n, code, sub, cat))
             printed += 1
             if printed >= count:
                 break
